@@ -10,10 +10,18 @@ NEWSPIDER_MODULE = "scrapy_empleos.spiders"
 
 ROBOTSTXT_OBEY = True
 
+DB_HOST = 'localhost'  # O la IP del servidor
+DB_DATABASE = 'posgrado'
+DB_USER = 'admin'
+DB_PASSWORD = 'Sarita_1' \
+#POSTGRES_PORT = '5432'  # Puerto por defecto
+
 # Middleware de Pipelines
 ITEM_PIPELINES = {
-    "scrapy_empleos.pipelines.SQLitePipeline": 300,
-    #'scrapy_empleos.pipelines.LimpiezaDatosPipeline': 300,  #dato nuevo insertado
+  #  "scrapy_empleos.pipelines.SQLitePipeline": 300,
+    'scrapy_empleos.pipelines.LimpiezaDatosPipeline': 300,  #dato nuevo insertado
+    'scrapy_empleos.pipelines.JobCollectorPipeline': 300,
+    
 }
 
 

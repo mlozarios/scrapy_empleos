@@ -12,16 +12,19 @@ class EmpleoSpider(scrapy.Spider):
         url_site = response.url
         if 'trabajando' in url_site:
             empleo_page_links = response.css("h2.views-field-title a::attr(href)").getall()
+            print('Inside parse')
             yield from response.follow_all(empleo_page_links, self.parse_trabajando)
-            yield from response.follow_all(response.css('a[title="Ir a la página siguiente"]'), self.parse)
-
+            next_links = response.css("a[title='Ir a la página siguiente']::attr(href)").getall()
+            #yield from response.follow_all(response.css('a[title="Ir a la página siguiente"]'), self.parse)
+            yield from response.follow_all(next_links, self.parse)
         elif 'trabajito' in url_site:
             for job in response.css("div.job-block"):
                 job_link = job.css("h4 a::attr(href)").get()
                 tipo = job.css("li.time::text").get(default="No especificado").strip()
                 if job_link:
                     yield response.follow(job_link, self.parse_trabajito, meta={"tipo": tipo})
-            yield from response.follow_all(response.css('a[rel="next"]'), self.parse)
+            next_links = response.css('a[rel = next]')
+            yield from response.follow_all(next_links, self.parse)
 
     def parse_trabajando(self, response):
         item = EmpleoItem()
@@ -31,7 +34,7 @@ class EmpleoSpider(scrapy.Spider):
         item["empresa"] = response.css("div.views-field-field-nombre-empresa a::text").get(default="").strip()
         item["ubicacion"] = response.css("div.views-field-field-ubicacion-del-empleo > div::text").get(default="No especificado").strip()
         item["tipo"] = response.css("div.views-field-field-tipo-empleo > div::text").get(default="No especificado").strip()
-        item["requisitos"] = response.xpath("//li[h5[contains(text(),'Requisitos:')]]/span/text()").get(default="No especificado")
+        #item["requisitos"] = response.xpath("//li[h5[contains(text(),'Requisitos:')]]/span/text()").get(default="No especificado")
         item["fecha_publicacion"] = response.css("div.views-field-created time::text").get(default="No especificado").strip()
         item["fecha_vencimiento"] = response.css("div.views-field-field-fecha-empleo-1 > div::text").get(default="No especificado").strip()
         item["job_descripcion"] = response.css('div.field--type-text-with-summary div.field--item p::text').getall()

@@ -12,7 +12,7 @@ class EmpleoItem(scrapy.Item):
     empresa = scrapy.Field()
     ubicacion = scrapy.Field()
     tipo = scrapy.Field()
-    requisitos = scrapy.Field()
+   # requisitos = scrapy.Field()
     fecha_publicacion = scrapy.Field()
     fecha_vencimiento = scrapy.Field()
     job_descripcion = scrapy.Field()

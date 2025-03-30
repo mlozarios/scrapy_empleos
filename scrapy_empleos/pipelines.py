@@ -5,7 +5,22 @@
 
 
 # useful for handling different item types with a single interface
+
 import sqlite3
+from itemadapter import ItemAdapter
+from datetime import datetime
+import re
+import unicodedata
+
+import os
+from datetime import date
+
+import psycopg2
+from psycopg2 import sql
+from dotenv import load_dotenv
+
+
+from itemadapter import ItemAdapter
 
 class SQLitePipeline:
     def open_spider(self, spider):
@@ -24,73 +39,190 @@ class SQLitePipeline:
                 fecha_vencimiento TEXT,
                 job_descripcion TEXT,
                 fecha_guardar TEXT
+                            
+
             )
         """)
         self.conn.commit()
 
+#conección a postgres
+
+class JobCollectorPipeline:
+    def __init__(self) -> None:
+        """Inicializa la conexión con la base de datos PostgreSQL."""
+        try:
+
+            # Conectar a la base de datos
+            self.connection = psycopg2.connect(
+                database="posgrado", 
+                user="postgres", 
+                host="localhost",
+                password="Sarita_1",
+                port=5432
+            )
+            self.cur = self.connection.cursor()
+            print("✅ Conexión a PostgreSQL establecida correctamente.")
+
+            # Crear la tabla si no existe
+            self.cur.execute("""
+                CREATE TABLE IF NOT EXISTS job_data (
+                    id SERIAL PRIMARY KEY,
+                    url TEXT UNIQUE,
+                    name TEXT,
+                    empresa TEXT,
+                    ubicacion TEXT,
+                    tipo TEXT,
+                    fecha_publicacion TEXT,
+                    fecha_vencimiento TEXT,
+                    job_descripcion TEXT,
+                    fecha_guardar TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            self.connection.commit()
+            print(" Tabla `job_data` verificada o creada.")
+
+        except psycopg2.Error as e:
+            print(f"Error de conexión a PostgreSQL: {e}")
+            raise
+
     def process_item(self, item, spider):
-        self.cursor.execute("""
-            INSERT INTO empleos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            item["data_id"],
-            item["url"],
-            item["name"],
-            item["empresa"],
-            item["ubicacion"],
-            item["tipo"],
-            item["requisitos"],
-            item["fecha_publicacion"],
-            item["fecha_vencimiento"],
-            " ".join(item["job_descripcion"]),
-            item["fecha_guardar"]
-        ))
-        self.conn.commit()
-        return item
+        """Inserta los datos extraídos en PostgreSQL."""
+        try:
+            query = sql.SQL("""
+                INSERT INTO job_data (url, name, empresa, ubicacion, tipo, fecha_publicacion, 
+                            fecha_vencimiento, job_descripcion, fecha_guardar)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (url) DO NOTHING;
+            """)
+
+            values = (
+                item.get('url'),
+                item.get('name'),
+                item.get('empresa'),
+                item.get('ubicacion'),
+                item.get('tipo'),
+                item.get('fecha_publicacion'),
+                item.get('fecha_vencimiento'),
+                item.get('job_descripcion'),
+                item.get('fecha_guardar')
+            )
+
+            self.cur.execute(query, values)
+            self.connection.commit()
+            print(f"✅ Insertado en PostgreSQL: {item.get('title')}")
+            return item
+
+        except psycopg2.Error as e:
+            self.connection.rollback()
+            print(f"❌ Error al insertar en PostgreSQL: {e}")
+            return item
 
     def close_spider(self, spider):
-        self.conn.close()
+        """Cierra la conexión con PostgreSQL al finalizar el spider."""
+        try:
+            self.cur.close()
+            self.connection.close()
+            print("✅ Conexión a PostgreSQL cerrada correctamente.")
+        except psycopg2.Error as e:
+            print(f"❌ Error al cerrar la conexión: {e}")
 
 
 # para la limpieza de datos con scrappy
-import logging
-from datetime import datetime
+from itemadapter import ItemAdapter
 
 class LimpiezaDatosPipeline:
-    def process_item(self, item, spider):
+
+    
+    def normalize_text(self, text):
         """
-        Procesa cada ítem antes de guardarlo, validando y limpiando sus valores.
+        Normaliza caracteres mal codificados, por ejemplo:
+        - 'á' (a + tilde separado) → 'á'
+        - 'ñ' (n + tilde separado) → 'ñ'
         """
-        item["name"] = self.limpiar_texto(item.get("name"))
-        item["empresa"] = self.limpiar_texto(item.get("empresa"))
-        item["ubicacion"] = self.limpiar_texto(item.get("ubicacion"))
-        item["tipo"] = self.limpiar_texto(item.get("tipo"))
-        item["requisitos"] = self.limpiar_texto(item.get("requisitos"))
-        item["fecha_publicacion"] = self.limpiar_fecha(item.get("fecha_publicacion"))
-        item["fecha_vencimiento"] = self.limpiar_fecha(item.get("fecha_vencimiento"))
-        item["job_descripcion"] = self.limpiar_descripcion(item.get("job_descripcion"))
+        return unicodedata.normalize('NFC', text)
+    
+       
+    def clean_text(self, text):
+    ##Elimina todos los caracteres no alfanuméricos excepto espacios, tildes y la ñ"""
+        if not text or not isinstance(text, str):
+            return None  # Devuelve None si el texto es vacío o no es una cadena
 
-        return item
+    # Normaliza caracteres mal codificados (tildes y ñ)
+        text = unicodedata.normalize('NFC', text)
 
-    def limpiar_texto(self, valor):
-        """Limpia espacios en blanco y caracteres especiales en textos."""
-        if valor:
-            valor = valor.strip()  # Elimina espacios al inicio y fin
-            valor = re.sub(r'\s+', ' ', valor)  # Sustituye múltiples espacios por uno
-            return valor
-        return "No especificado"
 
-    def limpiar_fecha(self, valor):
-        """Convierte fechas a formato estándar YYYY-MM-DD."""
-        if valor:
-            try:
-                return datetime.strptime(valor, "%d/%m/%Y").strftime("%Y-%m-%d")
-            except ValueError:
-                logging.warning(f"Fecha inválida: {valor}")
-        return "No especificado"
+    # Reemplaza caracteres no alfanuméricos (excepto espacios y acentos)
+        text = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]', '', text)
 
-    def limpiar_descripcion(self, lista):
-        """Limpia y une las líneas de descripción en un solo texto."""
-        if lista and isinstance(lista, list):
-            texto_limpio = " ".join([self.limpiar_texto(linea) for linea in lista])
-            return texto_limpio
-        return "No especificado"        
+    # Reemplaza múltiples espacios por un solo espacio
+        text = re.sub(r'\s+', ' ', text).strip()
+
+    # Eliminar emoticos y emojis
+        #text = re.sub(r'[^\x00-\x7F]+', '', text)
+        text = re.sub(r'[^\w\s.,;:!?¿¡áéíóúÁÉÍÓÚñÑüÜ-]', '', text)
+    
+        return 
+    
+
+def remove_links(self, text):	#Elimina URL desde texto
+	if not text:
+		return text
+    
+	#comun patron URL
+	url_pattern = r'http[s]?://[a-zA-Z]|[$-_@.&+]|(?:%[0-9a-fA-F]))+'
+
+	# elimina URLs
+	text = re.sub(url_pattern,'',text)
+	# trat de remover otros posibles formatos
+	text = re.sub(r'www\[^\s]+', '', text)
+	return text.strip()
+
+
+def process_item(self, item, spider):
+        adapter = ItemAdapter(item)
+    
+
+        # Convertir todos los textos a minúsculas y eliminar espacios innecesarios
+        for key in adapter.keys():
+            if adapter[key] and isinstance(adapter[key], str):
+                adapter[key] = adapter[key].strip().lower()
+
+      
+
+        # Validación de fecha: si está vacía, se reemplaza con "fecha desconocida"
+        if not adapter.get("fecha_publicacion"):
+            adapter["fecha_publicacion"] = "fecha desconocida"
+        if not adapter.get("fecha_vencimiento"):
+            adapter["fecha_vencimiento"] = "fecha desconocida"
+        if not adapter.get("fecha_guardar"):
+            adapter["fecha_guardar"] = datetime.now().isoformat()
+        
+
+        #Validacion de job_descripcion: si está vacía, se reemplaza con "descripcion desconocida"
+        if not adapter.get("job_descripcion"):
+            adapter["job_descripcion"] = "descripcion desconocida"
+        #Si tiene emojis los elimina
+        if adapter.get("job_descripcion"):
+            adapter["job_descripcion"] = self.clean_text(adapter["job_descripcion"])
+
+        if adapter.get("job_descripcion"):
+            adapter["job_descripcion"] = self.remove_links(adapter["job_descripcion"])
+
+        # Normalizar texto
+        return item  # ⬅️ Devuelve el item limpio para su almacenamiento
+
+# def limpiar_fecha(fecha):
+#     """
+#     Limpia la fecha eliminando caracteres no deseados y convirtiéndola a un formato estándar.
+#     """
+#     if not fecha:
+#         return None  # Devuelve None si la fecha es vacía
+#     elif 'horas' in fecha:
+#         return date.today()
+#     else:
+        
+#     # Elimina caracteres no deseados (ejemplo: "2023-09-15T00:00:00Z" → "2023-09-15")
+#     fecha_limpia = re.sub(r'[^0-9\-]', '', fecha)
+
+#     # Convierte a formato estándar (ejemplo: "2023-09-15" → "YYYY-MM-DD")
+#     return fecha_limpia
