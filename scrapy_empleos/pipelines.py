@@ -173,7 +173,7 @@ def remove_links(self, text):	#Elimina URL desde texto
 
 	# elimina URLs
 	text = re.sub(url_pattern,'',text)
-	# trat de remover otros posibles formatos
+	# trata de remover otros posibles formatos
 	text = re.sub(r'www\[^\s]+', '', text)
 	return text.strip()
 
